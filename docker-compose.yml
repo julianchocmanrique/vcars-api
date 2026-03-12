@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vcars
+      POSTGRES_USER: vcars
+      POSTGRES_PASSWORD: vcars
+    volumes:
+      - vcars_pg:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+  api:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    command: sh -lc "npm install && npm run prisma:generate && npm run dev"
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      - db
+    restart: unless-stopped
+volumes:
+  vcars_pg:

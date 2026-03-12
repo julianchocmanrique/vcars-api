@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TECH
+  CLIENT
+}
+
+enum VehicleStatus {
+  RECEIVED
+  INTERNAL_QUOTE
+  FORMAL_QUOTE_SENT
+  APPROVED
+  IN_WORKSHOP
+  READY
+  DELIVERED
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String
+  email     String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicles Vehicle[]
+}
+
+model Vehicle {
+  id         String        @id @default(uuid())
+  plate      String        @unique
+  brand      String?
+  model      String?
+  color      String?
+  year       String?
+  status     VehicleStatus @default(RECEIVED)
+  customerId String
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  entries        Entry[]
+  internalQuotes InternalQuote[]
+  formalQuotes   FormalQuote[]
+}
+
+model Entry {
+  id         String   @id @default(uuid())
+  vehicleId  String
+  receivedBy String?
+  notes      String?
+  mileageKm  Int?
+  fuelLevel  String?
+  createdAt  DateTime @default(now())
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+}
+
+model InternalQuote {
+  id        String   @id @default(uuid())
+  vehicleId String
+  createdBy String? // tech name/id
+  status    String   @default("DRAFT")
+  subtotal  Int      @default(0)
+  iva       Int      @default(0)
+  total     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicle      Vehicle       @relation(fields: [vehicleId], references: [id])
+  items        QuoteItem[]
+  formalQuotes FormalQuote[]
+}
+
+model FormalQuote {
+  id              String    @id @default(uuid())
+  vehicleId       String
+  internalQuoteId String?
+  createdBy       String? // admin
+  sentAt          DateTime?
+  subtotal        Int       @default(0)
+  iva             Int       @default(0)
+  total           Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  vehicle       Vehicle        @relation(fields: [vehicleId], references: [id])
+  internalQuote InternalQuote? @relation(fields: [internalQuoteId], references: [id])
+  items         QuoteItem[]
+}
+
+model QuoteItem {
+  id          String  @id @default(uuid())
+  system      String?
+  description String
+  unitPrice   Int? // cents or COP as integer
+  quantity    Int?    @default(1)
+  total       Int?    @default(0)
+
+  internalQuoteId String?
+  formalQuoteId   String?
+
+  internalQuote InternalQuote? @relation(fields: [internalQuoteId], references: [id])
+  formalQuote   FormalQuote?   @relation(fields: [formalQuoteId], references: [id])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  kind      String
+  channel   String // email|whatsapp
+  to        String
+  subject   String?
+  body      String
+  status    String    @default("PENDING")
+  error     String?
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+}
