@@ -17,6 +17,13 @@ await app.register(swagger, {
 })
 await app.register(swaggerUi, { routePrefix: '/docs' })
 
+app.get('/', async () => ({
+  ok: true,
+  name: 'vcars-api',
+  docs: '/docs',
+  healthz: '/healthz',
+}))
+
 app.get('/healthz', async () => ({ ok: true }))
 
 // --- Customers
