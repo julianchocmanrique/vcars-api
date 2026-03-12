@@ -17,7 +17,7 @@ services:
       - ./:/app
     env_file:
       - .env
-    command: sh -lc "npm install && npm run prisma:generate && npm run dev"
+    command: sh -lc "npm install && npm run prisma:generate && npm run build && npm run start"
     ports:
       - "127.0.0.1:4000:4000"
     depends_on:
