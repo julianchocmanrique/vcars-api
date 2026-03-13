@@ -3,8 +3,10 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
+import jwt from '@fastify/jwt'
 import { z } from 'zod'
 import nodemailer from 'nodemailer'
+import bcrypt from 'bcryptjs'
 import { prisma } from './prisma.js'
 
 const app = Fastify({ logger: true })
@@ -16,6 +18,76 @@ await app.register(swagger, {
   },
 })
 await app.register(swaggerUi, { routePrefix: '/docs' })
+
+// --- Auth (JWT)
+await app.register(jwt, {
+  secret: process.env.JWT_SECRET || 'dev-secret',
+})
+
+app.decorate('auth', async (req: any, reply: any) => {
+  try {
+    await req.jwtVerify()
+  } catch {
+    return reply.code(401).send({ ok: false, error: 'No autorizado' })
+  }
+})
+
+type JwtUser = {
+  sub: string
+  username: string
+  role: 'ADMIN' | 'TECH' | 'CLIENT'
+}
+
+function signToken(payload: JwtUser) {
+  // 7 días
+  return (app as any).jwt.sign(payload, { expiresIn: '7d' })
+}
+
+async function seedDemoUsersIfNeeded() {
+  if (String(process.env.SEED_DEMO_USERS || '').toLowerCase() !== 'true') return
+
+  const count = await prisma.user.count()
+  if (count > 0) return
+
+  const pass = await bcrypt.hash('1234', 10)
+
+  await prisma.user.createMany({
+    data: [
+      { username: 'admin', passwordHash: pass, role: 'ADMIN' },
+      { username: 'tecnico', passwordHash: pass, role: 'TECH' },
+      { username: 'cliente', passwordHash: pass, role: 'CLIENT' },
+    ],
+  })
+}
+
+await seedDemoUsersIfNeeded()
+
+app.post('/auth/login', async (req) => {
+  const body = z
+    .object({
+      username: z.string().min(1),
+      password: z.string().min(1),
+    })
+    .parse(req.body)
+
+  const username = body.username.trim().toLowerCase()
+  const user = await prisma.user.findUnique({ where: { username } })
+  if (!user) return { ok: false, error: 'Usuario o contraseña incorrectos' }
+
+  const ok = await bcrypt.compare(body.password, user.passwordHash)
+  if (!ok) return { ok: false, error: 'Usuario o contraseña incorrectos' }
+
+  const token = signToken({ sub: user.id, username: user.username, role: user.role as any })
+  return {
+    ok: true,
+    token,
+    user: { id: user.id, username: user.username, role: user.role },
+  }
+})
+
+app.get('/auth/me', { preHandler: (app as any).auth }, async (req: any) => {
+  return { ok: true, user: req.user }
+})
 
 app.get('/', async () => ({
   ok: true,
