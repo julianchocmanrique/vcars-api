@@ -62,15 +62,34 @@ async function seedDemoUsersIfNeeded() {
 
 await seedDemoUsersIfNeeded()
 
-app.post('/auth/login', async (req) => {
-  const body = z
-    .object({
-      username: z.string().min(1),
-      password: z.string().min(1),
-    })
-    .parse(req.body)
+app.post(
+  '/auth/login',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['username', 'password'],
+        properties: {
+          username: { type: 'string' },
+          password: { type: 'string' },
+        },
+      },
+    },
+  },
+  async (req, reply) => {
+    let body: { username: string; password: string }
+    try {
+      body = z
+        .object({
+          username: z.string().min(1),
+          password: z.string().min(1),
+        })
+        .parse(req.body)
+    } catch {
+      return reply.code(400).send({ ok: false, error: 'Body inválido (username y password)' })
+    }
 
-  const username = body.username.trim().toLowerCase()
+    const username = body.username.trim().toLowerCase()
   const user = await prisma.user.findUnique({ where: { username } })
   if (!user) return { ok: false, error: 'Usuario o contraseña incorrectos' }
 
@@ -78,12 +97,13 @@ app.post('/auth/login', async (req) => {
   if (!ok) return { ok: false, error: 'Usuario o contraseña incorrectos' }
 
   const token = signToken({ sub: user.id, username: user.username, role: user.role as any })
-  return {
-    ok: true,
-    token,
-    user: { id: user.id, username: user.username, role: user.role },
-  }
-})
+    return {
+      ok: true,
+      token,
+      user: { id: user.id, username: user.username, role: user.role },
+    }
+  },
+)
 
 app.get('/auth/me', { preHandler: (app as any).auth }, async (req: any) => {
   return { ok: true, user: req.user }
