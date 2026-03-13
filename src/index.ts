@@ -43,6 +43,16 @@ function signToken(payload: JwtUser) {
   return (app as any).jwt.sign(payload, { expiresIn: '7d' })
 }
 
+function requireRoles(...roles: JwtUser['role'][]) {
+  return async (req: any, reply: any) => {
+    await (app as any).auth(req, reply)
+    const role = req.user?.role
+    if (!role || !roles.includes(role)) {
+      return reply.code(403).send({ ok: false, error: 'No autorizado para esta acción' })
+    }
+  }
+}
+
 async function seedDemoUsersIfNeeded() {
   if (String(process.env.SEED_DEMO_USERS || '').toLowerCase() !== 'true') return
 
@@ -119,7 +129,7 @@ app.get('/', async () => ({
 app.get('/healthz', async () => ({ ok: true }))
 
 // --- Customers
-app.post('/customers', async (req) => {
+app.post('/customers', { preHandler: requireRoles('ADMIN', 'TECH') }, async (req) => {
   const body = z
     .object({
       name: z.string().min(1),
@@ -139,7 +149,7 @@ app.post('/customers', async (req) => {
   return { ok: true, customer }
 })
 
-app.get('/customers', async () => {
+app.get('/customers', { preHandler: requireRoles('ADMIN', 'TECH') }, async () => {
   const customers = await prisma.customer.findMany({
     orderBy: { createdAt: 'desc' },
     take: 50,
@@ -148,7 +158,7 @@ app.get('/customers', async () => {
 })
 
 // --- Vehicles
-app.post('/vehicles', async (req) => {
+app.post('/vehicles', { preHandler: requireRoles('ADMIN', 'TECH') }, async (req) => {
   const body = z
     .object({
       plate: z.string().min(3),
@@ -199,7 +209,7 @@ app.post('/vehicles', async (req) => {
   return { ok: true, vehicle }
 })
 
-app.get('/vehicles', async (req) => {
+app.get('/vehicles', { preHandler: requireRoles('ADMIN', 'TECH') }, async (req) => {
   const q = z
     .object({
       plate: z.string().optional(),
@@ -218,7 +228,7 @@ app.get('/vehicles', async (req) => {
   return { ok: true, vehicles }
 })
 
-app.get('/vehicles/:plate', async (req) => {
+app.get('/vehicles/:plate', { preHandler: (app as any).auth }, async (req) => {
   const params = z.object({ plate: z.string().min(1) }).parse((req as any).params)
   const plate = params.plate.trim().toUpperCase()
 
@@ -232,7 +242,10 @@ app.get('/vehicles/:plate', async (req) => {
 })
 
 // Workshop entry (Ingreso)
-app.post('/vehicles/:vehicleId/entries', async (req) => {
+app.post(
+  '/vehicles/:vehicleId/entries',
+  { preHandler: requireRoles('ADMIN', 'TECH') },
+  async (req) => {
   const params = z.object({ vehicleId: z.string().uuid() }).parse((req as any).params)
   const body = z
     .object({
@@ -254,7 +267,8 @@ app.post('/vehicles/:vehicleId/entries', async (req) => {
   })
 
   return { ok: true, entry }
-})
+  },
+)
 
 // TODO: quotes + notifications
 
