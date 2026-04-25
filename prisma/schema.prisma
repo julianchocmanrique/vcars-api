@@ -51,6 +51,7 @@ model Vehicle {
   internalQuotes InternalQuote[]
   formalQuotes   FormalQuote[]
   serviceOrder   ServiceOrderForm?
+  orderAssets    ServiceOrderAsset[]
 }
 
 model Entry {
@@ -143,4 +144,22 @@ model ServiceOrderForm {
   updatedAt DateTime @updatedAt
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model ServiceOrderAsset {
+  id           String   @id @default(uuid())
+  vehicleId     String
+  stepKey       String
+  fieldKey      String
+  storagePath   String
+  publicUrl     String
+  mimeType      String
+  byteSize      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, stepKey, fieldKey])
+  @@index([vehicleId, stepKey])
 }

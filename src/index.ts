@@ -7,9 +7,16 @@ import jwt from '@fastify/jwt'
 import { z } from 'zod'
 import nodemailer from 'nodemailer'
 import bcrypt from 'bcryptjs'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import crypto from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import { prisma } from './prisma.js'
 
 const app = Fastify({ logger: true })
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(__dirname, '../uploads/service-orders')
 
 await app.register(cors, { origin: process.env.CORS_ORIGIN || true })
 await app.register(swagger, {
@@ -72,6 +79,25 @@ function normalizeFormsByStep(input: unknown): FormsByStep {
     out[String(stepKey)] = normalizeStepData(stepData)
   }
   return out
+}
+
+function mimeToExt(mime: string): string {
+  const m = String(mime || '').toLowerCase()
+  if (m.includes('png')) return 'png'
+  if (m.includes('webp')) return 'webp'
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg'
+  if (m.includes('gif')) return 'gif'
+  if (m.includes('svg')) return 'svg'
+  return 'bin'
+}
+
+function parseDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer } {
+  const raw = String(dataUrl || '')
+  const match = raw.match(/^data:([^;]+);base64,(.+)$/)
+  if (!match) throw new Error('Formato data URL inválido')
+  const mimeType = String(match[1] || 'application/octet-stream')
+  const base64 = String(match[2] || '')
+  return { mimeType, buffer: Buffer.from(base64, 'base64') }
 }
 
 async function seedDemoUsersIfNeeded() {
@@ -378,6 +404,86 @@ app.put('/service-orders/:plate/forms/:stepKey', { preHandler: (app as any).auth
     stepData: formsByStep[stepKey],
     formsByStep,
     updatedAt: upserted.updatedAt,
+  }
+})
+
+app.post('/service-orders/:plate/assets', { preHandler: (app as any).auth }, async (req: any, reply) => {
+  const params = z.object({ plate: z.string().min(1) }).parse(req.params)
+  const body = z.object({
+    stepKey: z.string().min(1).max(60).regex(/^[a-zA-Z0-9_-]+$/),
+    fieldKey: z.string().min(1).max(120).regex(/^[a-zA-Z0-9_-]+$/),
+    dataUrl: z.string().min(20),
+  }).parse(req.body)
+
+  const plate = params.plate.trim().toUpperCase()
+  const role = String(req.user?.role || '')
+  if (role === 'CLIENT' && body.stepKey !== 'aprobacion') {
+    return reply.code(403).send({ ok: false, error: 'No autorizado para subir en este paso' })
+  }
+  if (role === 'TECH' && (body.stepKey === 'cotizacion_formal' || body.stepKey === 'entrega')) {
+    return reply.code(403).send({ ok: false, error: 'No autorizado para subir en este paso' })
+  }
+
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { plate },
+    select: { id: true },
+  })
+  if (!vehicle) return reply.code(404).send({ ok: false, error: 'Vehicle not found' })
+
+  const { mimeType, buffer } = parseDataUrl(body.dataUrl)
+  if (buffer.byteLength <= 0) return reply.code(400).send({ ok: false, error: 'Archivo vacío' })
+  if (buffer.byteLength > 8 * 1024 * 1024) return reply.code(413).send({ ok: false, error: 'Archivo supera 8MB' })
+
+  await fs.mkdir(UPLOAD_DIR, { recursive: true })
+  const ext = mimeToExt(mimeType)
+  const randomId = crypto.randomUUID()
+  const fileName = `${plate}_${body.stepKey}_${body.fieldKey}_${randomId}.${ext}`
+  const absolutePath = path.join(UPLOAD_DIR, fileName)
+  await fs.writeFile(absolutePath, buffer)
+
+  const publicUrl = `/service-orders/assets/${randomId}`
+  await prisma.serviceOrderAsset.upsert({
+    where: {
+      vehicleId_stepKey_fieldKey: {
+        vehicleId: vehicle.id,
+        stepKey: body.stepKey,
+        fieldKey: body.fieldKey,
+      },
+    },
+    create: {
+      id: randomId,
+      vehicleId: vehicle.id,
+      stepKey: body.stepKey,
+      fieldKey: body.fieldKey,
+      storagePath: absolutePath,
+      publicUrl,
+      mimeType,
+      byteSize: buffer.byteLength,
+    },
+    update: {
+      storagePath: absolutePath,
+      publicUrl,
+      mimeType,
+      byteSize: buffer.byteLength,
+    },
+  })
+
+  return { ok: true, assetId: randomId, url: publicUrl, mimeType, byteSize: buffer.byteLength }
+})
+
+app.get('/service-orders/assets/:assetId', async (req: any, reply) => {
+  const params = z.object({ assetId: z.string().uuid() }).parse(req.params)
+  const asset = await prisma.serviceOrderAsset.findUnique({
+    where: { id: params.assetId },
+    select: { storagePath: true, mimeType: true },
+  })
+  if (!asset) return reply.code(404).send({ ok: false, error: 'Asset not found' })
+  try {
+    const file = await fs.readFile(asset.storagePath)
+    reply.header('Content-Type', asset.mimeType || 'application/octet-stream')
+    return reply.send(file)
+  } catch {
+    return reply.code(404).send({ ok: false, error: 'Asset file missing' })
   }
 })
 
