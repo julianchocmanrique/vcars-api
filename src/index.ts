@@ -38,6 +38,9 @@ type JwtUser = {
   role: 'ADMIN' | 'TECH' | 'CLIENT'
 }
 
+type StepFieldMap = Record<string, string>
+type FormsByStep = Record<string, StepFieldMap>
+
 function signToken(payload: JwtUser) {
   // 7 días
   return (app as any).jwt.sign(payload, { expiresIn: '7d' })
@@ -51,6 +54,24 @@ function requireRoles(...roles: JwtUser['role'][]) {
       return reply.code(403).send({ ok: false, error: 'No autorizado para esta acción' })
     }
   }
+}
+
+function normalizeStepData(input: unknown): StepFieldMap {
+  if (!input || typeof input !== 'object') return {}
+  const out: StepFieldMap = {}
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    out[String(key)] = typeof value === 'string' ? value : String(value ?? '')
+  }
+  return out
+}
+
+function normalizeFormsByStep(input: unknown): FormsByStep {
+  if (!input || typeof input !== 'object') return {}
+  const out: FormsByStep = {}
+  for (const [stepKey, stepData] of Object.entries(input as Record<string, unknown>)) {
+    out[String(stepKey)] = normalizeStepData(stepData)
+  }
+  return out
 }
 
 async function seedDemoUsersIfNeeded() {
@@ -269,6 +290,96 @@ app.post(
   return { ok: true, entry }
   },
 )
+
+// --- Service order forms (backend source of truth)
+app.get('/service-orders/:plate/forms', { preHandler: (app as any).auth }, async (req) => {
+  const params = z.object({ plate: z.string().min(1) }).parse((req as any).params)
+  const plate = params.plate.trim().toUpperCase()
+
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { plate },
+    select: { id: true },
+  })
+  if (!vehicle) return { ok: false, error: 'Vehicle not found' }
+
+  const row = await prisma.serviceOrderForm.findUnique({
+    where: { vehicleId: vehicle.id },
+    select: { formsJson: true, updatedAt: true },
+  })
+  const formsByStep = normalizeFormsByStep(row?.formsJson || {})
+  return { ok: true, formsByStep, updatedAt: row?.updatedAt || null }
+})
+
+app.put('/service-orders/:plate/forms', { preHandler: requireRoles('ADMIN', 'TECH') }, async (req: any, reply) => {
+  const params = z.object({ plate: z.string().min(1) }).parse(req.params)
+  const body = z.object({ formsByStep: z.record(z.string(), z.any()) }).parse(req.body)
+  const plate = params.plate.trim().toUpperCase()
+
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { plate },
+    select: { id: true },
+  })
+  if (!vehicle) return reply.code(404).send({ ok: false, error: 'Vehicle not found' })
+
+  const normalized = normalizeFormsByStep(body.formsByStep)
+  const upserted = await prisma.serviceOrderForm.upsert({
+    where: { vehicleId: vehicle.id },
+    create: { vehicleId: vehicle.id, formsJson: normalized },
+    update: { formsJson: normalized },
+    select: { updatedAt: true },
+  })
+  return { ok: true, formsByStep: normalized, updatedAt: upserted.updatedAt }
+})
+
+app.put('/service-orders/:plate/forms/:stepKey', { preHandler: (app as any).auth }, async (req: any, reply) => {
+  const params = z.object({
+    plate: z.string().min(1),
+    stepKey: z.string().min(1).max(60).regex(/^[a-zA-Z0-9_-]+$/),
+  }).parse(req.params)
+  const body = z.object({ stepData: z.record(z.string(), z.any()) }).parse(req.body)
+  const plate = params.plate.trim().toUpperCase()
+  const stepKey = params.stepKey
+  const role = String(req.user?.role || '')
+
+  if (role === 'CLIENT' && stepKey !== 'aprobacion') {
+    return reply.code(403).send({ ok: false, error: 'No autorizado para editar este paso' })
+  }
+  if (role === 'TECH' && (stepKey === 'cotizacion_formal' || stepKey === 'entrega')) {
+    return reply.code(403).send({ ok: false, error: 'No autorizado para editar este paso' })
+  }
+
+  const vehicle = await prisma.vehicle.findUnique({
+    where: { plate },
+    select: { id: true },
+  })
+  if (!vehicle) return reply.code(404).send({ ok: false, error: 'Vehicle not found' })
+
+  const current = await prisma.serviceOrderForm.findUnique({
+    where: { vehicleId: vehicle.id },
+    select: { formsJson: true },
+  })
+
+  const formsByStep = normalizeFormsByStep(current?.formsJson || {})
+  formsByStep[stepKey] = {
+    ...(formsByStep[stepKey] || {}),
+    ...normalizeStepData(body.stepData),
+  }
+
+  const upserted = await prisma.serviceOrderForm.upsert({
+    where: { vehicleId: vehicle.id },
+    create: { vehicleId: vehicle.id, formsJson: formsByStep },
+    update: { formsJson: formsByStep },
+    select: { updatedAt: true },
+  })
+
+  return {
+    ok: true,
+    stepKey,
+    stepData: formsByStep[stepKey],
+    formsByStep,
+    updatedAt: upserted.updatedAt,
+  }
+})
 
 // TODO: quotes + notifications
 

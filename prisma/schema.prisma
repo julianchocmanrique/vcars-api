@@ -50,6 +50,7 @@ model Vehicle {
   entries        Entry[]
   internalQuotes InternalQuote[]
   formalQuotes   FormalQuote[]
+  serviceOrder   ServiceOrderForm?
 }
 
 model Entry {
@@ -132,4 +133,14 @@ model Notification {
   error     String?
   createdAt DateTime  @default(now())
   sentAt    DateTime?
+}
+
+model ServiceOrderForm {
+  id        String   @id @default(uuid())
+  vehicleId String   @unique
+  formsJson Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 }
