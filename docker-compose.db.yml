@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: vcars-db
+    environment:
+      POSTGRES_DB: vcars
+      POSTGRES_USER: vcars
+      POSTGRES_PASSWORD: vcars
+    volumes:
+      - vcars_pg:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    networks:
+      - vcars_net
+
+volumes:
+  vcars_pg:
+
+networks:
+  vcars_net:
+    name: vcars_net

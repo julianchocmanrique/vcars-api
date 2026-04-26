@@ -1,0 +1,19 @@
+services:
+  api:
+    image: node:22-alpine
+    container_name: vcars-api
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    command: sh -lc "npm install && npm run prisma:generate && npm run prisma:deploy && npm run build && npm run start"
+    ports:
+      - "0.0.0.0:4000:4000"
+    restart: unless-stopped
+    networks:
+      - vcars_net
+
+networks:
+  vcars_net:
+    external: true
