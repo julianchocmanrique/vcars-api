@@ -32,7 +32,7 @@ jobs:
 
             test -f .env.lab || cp .env.lab.example .env.lab
 
-            docker compose -f docker-compose.lab.yml up -d --build --remove-orphans
-            docker compose -f docker-compose.lab.yml ps
+            docker compose -p vcars_api_lab -f docker-compose.lab.yml up -d --build
+            docker compose -p vcars_api_lab -f docker-compose.lab.yml ps
             curl -fsSIL --max-time 20 http://127.0.0.1:4000/healthz || true
             INNER

@@ -32,7 +32,7 @@ jobs:
 
             test -f .env.prod || cp .env.prod.example .env.prod
 
-            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
-            docker compose -f docker-compose.prod.yml ps
+            docker compose -p vcars_api_prod -f docker-compose.prod.yml up -d --build
+            docker compose -p vcars_api_prod -f docker-compose.prod.yml ps
             curl -fsSIL --max-time 20 http://127.0.0.1:4010/healthz || true
             INNER
