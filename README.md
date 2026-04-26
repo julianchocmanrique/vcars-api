@@ -24,8 +24,11 @@ Copy `.env.example` to `.env` and fill values.
 
 > Note: `.env` is intentionally **not committed**.
 
-## Split deploy (API separado de DB)
+## Split deploy (LAB/PROD)
 
-- DB only: `docker-compose.db.yml`
-- API only: `docker-compose.api.yml`
+- LAB: `docker-compose.lab.yml` + `.env.lab`
+- PROD: `docker-compose.prod.yml` + `.env.prod`
 - Guía rápida: `DEPLOY_SPLIT.md`
+- Workflows:
+  - `.github/workflows/deploy-lab.yml` (rama `lab`)
+  - `.github/workflows/deploy-prod.yml` (rama `main`)
